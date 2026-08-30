@@ -1,17 +1,3 @@
-'use strict';
-/**
- * health-engine.js
- *
- * Reads a package.json, checks each dependency against:
- *  - the npm registry (latest version, last publish date, deprecation)
- *  - OSV.dev (known vulnerabilities), a free public API with no auth needed
- * and produces a status for each package: ok / outdated / abandoned /
- * deprecated / vulnerable (vulnerable and deprecated always win, since
- * they're the most actionable).
- *
- * Zero npm dependencies — uses the global `fetch` built into Node 18+.
- */
-
 const fs = require('fs');
 const path = require('path');
 
@@ -31,8 +17,6 @@ function readPackageJson(dir) {
 }
 
 function readLockedVersions(dir) {
-  // Best-effort: read package-lock.json (npm) if present, to report the
-  // actually-installed version rather than just the declared semver range.
   const lockPath = path.join(dir, 'package-lock.json');
   const versions = {};
   if (!fs.existsSync(lockPath)) return versions;
@@ -46,7 +30,6 @@ function readLockedVersions(dir) {
       if (info.version) versions[name] = info.version;
     }
   } catch {
-    // malformed lockfile — just skip, fall back to declared ranges
   }
   return versions;
 }
@@ -98,7 +81,6 @@ async function fetchVulnerabilities(packages) {
 }
 
 function stripSemverRange(range) {
-  // best-effort: pull a concrete-ish version out of a range for OSV lookup
   return String(range).replace(/^[\^~>=<\s]+/, '').split(/[\s|]/)[0] || null;
 }
 
@@ -155,7 +137,6 @@ async function run(dir, opts = {}) {
   }
   await Promise.all(Array.from({ length: options.concurrency }, worker));
 
-  // vulnerability lookup (batched)
   let vulnByName = {};
   try {
     const results = await fetchVulnerabilities(
