@@ -1,0 +1,49 @@
+name: 'Docs Drift Checker'
+description: 'Flags JSDoc comments and README code samples that have drifted out of sync with the actual code.'
+author: 'you'
+branding:
+  icon: 'edit-3'
+  color: 'yellow'
+
+inputs:
+  dir:
+    description: 'Directory to scan'
+    required: false
+    default: '.'
+  strict:
+    description: 'Also flag exported functions with no JSDoc at all'
+    required: false
+    default: 'false'
+  fail-on-drift:
+    description: 'If "true", the action fails (non-zero exit) when drift is found'
+    required: false
+    default: 'true'
+
+outputs:
+  issue-count:
+    description: 'Number of drift issues found'
+    value: ${{ steps.run-check.outputs.issue-count }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run docs-drift-checker
+      id: run-check
+      shell: bash
+      run: |
+        set +e
+        node "${{ github.action_path }}/check-drift.js" \
+          --dir="${{ inputs.dir }}" \
+          ${{ inputs.strict == 'true' && '--strict' || '' }} \
+          --format=github \
+          --json --out="${{ github.action_path }}/report.json"
+        EXIT_CODE=$?
+
+        COUNT=$(node -e "console.log(require('${{ github.action_path }}/report.json').issues.length)")
+        echo "issue-count=$COUNT" >> "$GITHUB_OUTPUT"
+
+        if [ "${{ inputs.fail-on-drift }}" = "true" ]; then
+          exit $EXIT_CODE
+        else
+          exit 0
+        fi
