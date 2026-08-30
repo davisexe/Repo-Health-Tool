@@ -1,0 +1,57 @@
+name: 'Dependency Health Dashboard'
+description: 'Checks package.json dependencies for outdated, deprecated, abandoned, and vulnerable packages, and produces an HTML dashboard + job summary.'
+author: 'you'
+branding:
+  icon: 'activity'
+  color: 'green'
+
+inputs:
+  dir:
+    description: 'Directory containing package.json'
+    required: false
+    default: '.'
+  fail-on:
+    description: 'Fail the job if any package is at or above this severity: none | outdated | abandoned | deprecated | vulnerable'
+    required: false
+    default: 'vulnerable'
+  abandoned-months:
+    description: 'Months since last publish before a package counts as "abandoned"'
+    required: false
+    default: '18'
+
+outputs:
+  vulnerable-count:
+    description: 'Number of packages with known vulnerabilities'
+    value: ${{ steps.run-check.outputs.vulnerable-count }}
+  report-path:
+    description: 'Path to the generated HTML dashboard'
+    value: ${{ steps.run-check.outputs.report-path }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Run dependency-health-dashboard
+      id: run-check
+      shell: bash
+      run: |
+        set +e
+        REPORT="${{ github.action_path }}/report.html"
+        node "${{ github.action_path }}/check-deps.js" \
+          --dir="${{ inputs.dir }}" \
+          --fail-on="${{ inputs.fail-on }}" \
+          --abandoned-months="${{ inputs.abandoned-months }}" \
+          --json --html="$REPORT" --out="${{ github.action_path }}/report.json"
+        EXIT_CODE=$?
+
+        VCOUNT=$(node -e "console.log(require('${{ github.action_path }}/report.json').summary.vulnerable)" 2>/dev/null || echo 0)
+        echo "vulnerable-count=$VCOUNT" >> "$GITHUB_OUTPUT"
+        echo "report-path=$REPORT" >> "$GITHUB_OUTPUT"
+
+        exit $EXIT_CODE
+
+    - name: Upload dashboard artifact
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: dependency-health-report
+        path: ${{ github.action_path }}/report.html
