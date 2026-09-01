@@ -1,24 +1,3 @@
-'use strict';
-/**
- * drift-engine.js
- *
- * Zero-dependency heuristics for finding places where JSDoc comments (or
- * README references) have drifted out of sync with the actual code.
- *
- * This is intentionally regex/heuristic-based rather than a full AST parser
- * (no @babel/parser, no typescript compiler) so the whole tool has ZERO npm
- * dependencies and runs on any Node 16+ with nothing to install.
- *
- * What it catches:
- *  1. param-mismatch   — a function's JSDoc @param list doesn't match its
- *                         actual parameter list (renamed, added, removed).
- *  2. missing-doc       — an exported function has no JSDoc at all (opt-in,
- *                         see --strict).
- *  3. stale-md-reference — a function name is documented (backticked) and
- *                         demoed in a fenced code block in a Markdown file,
- *                         but no longer exists anywhere in the source.
- */
-
 const fs = require('fs');
 const path = require('path');
 
@@ -35,10 +14,6 @@ const JS_KEYWORDS = new Set([
   'super', 'class', 'const', 'let', 'var', 'delete', 'void', 'instanceof',
 ]);
 
-// ---------------------------------------------------------------------
-// File walking
-// ---------------------------------------------------------------------
-
 function walk(dir, extFilter, ignoreDirs = DEFAULT_IGNORE_DIRS) {
   const results = [];
   const entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -54,11 +29,6 @@ function walk(dir, extFilter, ignoreDirs = DEFAULT_IGNORE_DIRS) {
   }
   return results;
 }
-
-// ---------------------------------------------------------------------
-// Function + JSDoc extraction
-// ---------------------------------------------------------------------
-
 const JSDOC_RE = /\/\*\*([\s\S]*?)\*\//g;
 
 // function foo(a, b) {           | export async function foo(a, b) {
@@ -75,10 +45,7 @@ function lineOf(content, index) {
 
 function parseParamNames(rawParams) {
   if (!rawParams.trim()) return [];
-  // naive split on top-level commas (good enough: destructuring/defaults
-  // rarely contain commas we care about matching, and the sandbox tool
-  // is meant to catch drift, not be a full parser)
-  return rawParams
+  
     .split(',')
     .map((p) => p.trim())
     .filter(Boolean)
