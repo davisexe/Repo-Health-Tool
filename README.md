@@ -1,93 +1,72 @@
-# dependency-health-dashboard
+# docs-drift-checker
 
-One glance at whether your `package.json` dependencies are outdated,
-vulnerable, deprecated, or effectively abandoned.
+Flags places where JSDoc comments or README code samples have drifted out of
+sync with the actual code — e.g. a function gained a new parameter but the
+`@param` list wasn't updated, or a README demos a function that got renamed
+or deleted.
 
-**Zero npm dependencies.** Uses Node's built-in `fetch` (Node 18+) to talk to
-the npm registry and [OSV.dev](https://osv.dev) — both free, public, no API
-key needed. Nothing to install.
+**Zero npm dependencies.** Pure Node.js (regex/heuristic based, not a full
+AST parser), so there's nothing to `npm install` — just run it.
 
 ## Quick start
 
 ```bash
-node check-deps.js                          # scan current directory, print a text report
-node check-deps.js --html=report.html       # also write a standalone HTML dashboard
-node check-deps.js --json                   # machine-readable output
-node check-deps.js --format=github          # Markdown summary (for CI)
-node check-deps.js --fail-on=none           # never fail the process, just report
+node check-drift.js                  # scan current directory
+node check-drift.js --dir=src        # scan a specific directory
+node check-drift.js --strict         # also flag exported functions with zero JSDoc
+node check-drift.js --json           # machine-readable output
+node check-drift.js --format=github  # Markdown report (for PR/CI summaries)
 ```
 
-Open the generated `report.html` in any browser — it's a single
-self-contained file (data is inlined), so you can attach it to a CI artifact
-or email it around. Click a status card to filter the table by that status;
-type in the search box to filter by name.
+Exit code is `1` if any drift is found, `0` otherwise — so it plugs straight
+into CI as a gate.
 
-## Status levels
+## What it catches
 
-Checked in this priority order (a package only gets one status — the worst
-one that applies):
-
-| Status | Meaning |
+| Type | Meaning |
 |---|---|
-| `vulnerable` | Has a known vulnerability per [OSV.dev](https://osv.dev) for the installed/declared version |
-| `deprecated` | The latest published version is marked deprecated on npm |
-| `abandoned` | No publish in the last N months (default 18, `--abandoned-months` to change) |
-| `outdated` | A newer version exists on npm than what you have installed/declared |
-| `ok` | None of the above |
-
-## `--fail-on`
-
-Controls the exit code, for CI gating:
-
-```
---fail-on=vulnerable   (default) fail only if something is actually vulnerable
---fail-on=deprecated   fail on deprecated or vulnerable
---fail-on=abandoned    fail on abandoned, deprecated, or vulnerable
---fail-on=outdated     fail on any non-ok status
---fail-on=none         always exit 0, just report
-```
+| `param-mismatch` | A function's JSDoc `@param` list doesn't match its real parameters (added, removed, or renamed) |
+| `missing-doc` | *(opt-in via `--strict`)* An exported function has no JSDoc at all |
+| `stale-md-reference` | A function is demoed in a fenced code block in a Markdown file (and mentioned inline elsewhere as `` `fnName()` ``) but doesn't exist anywhere in the source anymore |
 
 ## Using it as a GitHub Action
 
-1. Copy this whole folder into `.github/actions/dependency-health-dashboard/`.
-2. Add a workflow (see `.github/workflows/dep-health.yml` for a full example
-   — a good pattern is running it both on PRs that touch `package.json` and
-   on a weekly schedule, since "abandoned" and "vulnerable" status can
-   change without your code changing at all):
+1. Copy this whole folder into `.github/actions/docs-drift-checker/` in your repo.
+2. Add a workflow (see `.github/workflows/docs-drift.yml` for a full example):
 
 ```yaml
-- uses: ./.github/actions/dependency-health-dashboard
+- uses: ./.github/actions/docs-drift-checker
   with:
-    fail-on: 'vulnerable'
+    dir: '.'
+    strict: 'false'
+    fail-on-drift: 'true'
 ```
 
-The action uploads the HTML dashboard as a workflow artifact and writes a
-Markdown summary to the job's step summary automatically.
+It writes a Markdown table to the job's step summary automatically, so
+results show up right in the GitHub Actions UI without extra setup — no
+`GITHUB_TOKEN` or PR-comment permissions required.
 
-## Notes / limitations
+## How the detection works (and its limits)
 
-- Version comparison against `package-lock.json` only supports the npm
-  lockfile format (`packages` key, npm v7+ lockfiles). If there's no
-  lockfile, it falls back to a best-effort read of the declared semver
-  range, which is less precise (e.g. `^1.2.0` is treated as `1.2.0`).
-- "Abandoned" is a heuristic (time since last publish) — a genuinely stable,
-  finished package (e.g. something that reached 1.0 and just doesn't need
-  changes) will get flagged too. Treat it as "worth a second look," not
-  "definitely dead."
-- OSV.dev covers a huge range of advisories but isn't guaranteed complete;
-  for anything security-critical, also run `npm audit` and check GitHub's
-  Dependabot alerts.
-- Built and syntax/logic-tested in a sandboxed environment without network
-  access — the scoring logic (`health-engine.js`'s `scorePackage`) was unit
-  tested directly, and the full pipeline was integration-tested against a
-  mocked `fetch`, but the live registry/OSV calls themselves haven't been
-  exercised against the real internet. Run it locally against a real
-  project and let me know if anything about the actual API responses trips
-  it up.
+- Function/JSDoc extraction is regex-based, not a real parser. It handles
+  the common shapes (`function foo(...)`, `export function foo(...)`,
+  `const foo = (...) => {}`, `export const foo = async (...) => {}`) but
+  won't catch every exotic syntax (decorators, complex generics, etc.).
+- Param comparison is by **name**, not type — it won't catch a param whose
+  type changed but name didn't (e.g. `id: string` → `id: number`).
+- The Markdown check is deliberately conservative: it only flags a name if
+  it's both demoed in a fenced code block *and* referenced inline as code
+  elsewhere in the same file, to avoid flagging incidental variable names
+  in example snippets.
+
+Given those trade-offs, treat it as a fast, dependency-free first pass —
+good for CI gating on obvious drift — not a substitute for a full
+TypeScript-aware doc linter if your project needs more precision.
 
 ## Files
 
-- `health-engine.js` — fetch + scoring logic (importable, testable on its own)
-- `render-html.js` — the single-file HTML dashboard generator
-- `check-deps.js` — CLI wrapper (arg parsing, report formatting, exit codes)
+- `drift-engine.js` — the detection logic (importable, testable on its own)
+- `check-drift.js` — CLI wrapper (arg parsing, report formatting, exit codes)
 - `action.yml` — GitHub Action definition
+- `test-fixtures/` — a small example repo with intentional drift, useful for
+  trying the tool or as a regression check after editing `drift-engine.js`

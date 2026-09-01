@@ -1,57 +1,49 @@
-name: 'Dependency Health Dashboard'
-description: 'Checks package.json dependencies for outdated, deprecated, abandoned, and vulnerable packages, and produces an HTML dashboard + job summary.'
+name: 'Docs Drift Checker'
+description: 'Flags JSDoc comments and README code samples that have drifted out of sync with the actual code.'
 author: 'you'
 branding:
-  icon: 'activity'
-  color: 'green'
+  icon: 'edit-3'
+  color: 'yellow'
 
 inputs:
   dir:
-    description: 'Directory containing package.json'
+    description: 'Directory to scan'
     required: false
     default: '.'
-  fail-on:
-    description: 'Fail the job if any package is at or above this severity: none | outdated | abandoned | deprecated | vulnerable'
+  strict:
+    description: 'Also flag exported functions with no JSDoc at all'
     required: false
-    default: 'vulnerable'
-  abandoned-months:
-    description: 'Months since last publish before a package counts as "abandoned"'
+    default: 'false'
+  fail-on-drift:
+    description: 'If "true", the action fails (non-zero exit) when drift is found'
     required: false
-    default: '18'
+    default: 'true'
 
 outputs:
-  vulnerable-count:
-    description: 'Number of packages with known vulnerabilities'
-    value: ${{ steps.run-check.outputs.vulnerable-count }}
-  report-path:
-    description: 'Path to the generated HTML dashboard'
-    value: ${{ steps.run-check.outputs.report-path }}
+  issue-count:
+    description: 'Number of drift issues found'
+    value: ${{ steps.run-check.outputs.issue-count }}
 
 runs:
   using: 'composite'
   steps:
-    - name: Run dependency-health-dashboard
+    - name: Run docs-drift-checker
       id: run-check
       shell: bash
       run: |
         set +e
-        REPORT="${{ github.action_path }}/report.html"
-        node "${{ github.action_path }}/check-deps.js" \
+        node "${{ github.action_path }}/check-drift.js" \
           --dir="${{ inputs.dir }}" \
-          --fail-on="${{ inputs.fail-on }}" \
-          --abandoned-months="${{ inputs.abandoned-months }}" \
-          --json --html="$REPORT" --out="${{ github.action_path }}/report.json"
+          ${{ inputs.strict == 'true' && '--strict' || '' }} \
+          --format=github \
+          --json --out="${{ github.action_path }}/report.json"
         EXIT_CODE=$?
 
-        VCOUNT=$(node -e "console.log(require('${{ github.action_path }}/report.json').summary.vulnerable)" 2>/dev/null || echo 0)
-        echo "vulnerable-count=$VCOUNT" >> "$GITHUB_OUTPUT"
-        echo "report-path=$REPORT" >> "$GITHUB_OUTPUT"
+        COUNT=$(node -e "console.log(require('${{ github.action_path }}/report.json').issues.length)")
+        echo "issue-count=$COUNT" >> "$GITHUB_OUTPUT"
 
-        exit $EXIT_CODE
-
-    - name: Upload dashboard artifact
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: dependency-health-report
-        path: ${{ github.action_path }}/report.html
+        if [ "${{ inputs.fail-on-drift }}" = "true" ]; then
+          exit $EXIT_CODE
+        else
+          exit 0
+        fi
